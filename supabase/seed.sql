@@ -1,0 +1,5 @@
+-- Seed data is tracked in the hosted project's existing migration:
+-- supabase/migrations/20260607155027_seed_fish_species_and_achievements.sql
+--
+-- Keep this file empty so `supabase db reset` does not add rows beyond the
+-- schema that already exists in the Fishedex Supabase project.
