@@ -70,6 +70,8 @@ It has not been deployed yet, matching the current hosted project state.
 
 It receives an image, reads the existing `fish_species` catalog, asks OpenAI to match the image only to an existing `fish_species.name`, then upserts a row into `user_catches` when it finds a match.
 
+Access is limited to signed-in Supabase Auth users. `verify_jwt = true` on the function rejects anonymous calls at the gateway, and the handler returns `401` when `auth.getUser()` does not resolve a user. There is no role or allowlist check beyond authentication.
+
 It does not create a new table, does not use Storage, and does not write a separate classification history because those objects do not currently exist in the hosted project.
 
 ## Local Commands
@@ -109,5 +111,7 @@ Only deploy this after you are ready to add the first Edge Function to the hoste
 ```sh
 supabase functions deploy classify-fish
 supabase secrets set OPENAI_API_KEY=your-openai-key
-supabase secrets set OPENAI_MODEL=gpt-4.1-mini
+supabase secrets set OPENAI_MODEL=gpt-5.4-mini
 ```
+
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically on hosted Edge Functions. You only need to set OpenAI secrets for production.

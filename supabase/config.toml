@@ -46,4 +46,4 @@ inspector_port = 8083
 [functions.classify-fish]
 enabled = true
 verify_jwt = true
-import_map = "./supabase/functions/classify-fish/deno.json"
+import_map = "./functions/classify-fish/deno.json"

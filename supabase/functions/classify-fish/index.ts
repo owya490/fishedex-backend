@@ -36,20 +36,29 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = requiredEnv("SUPABASE_ANON_KEY");
     const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
     const openAiApiKey = requiredEnv("OPENAI_API_KEY");
-    const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini";
+    const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4-mini";
 
     const authClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
     });
     const serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const { data: userData } = await authClient.auth.getUser();
-    const user = userData.user;
-    if (!user) {
+    // Any valid Supabase Auth session may call this function; no role or allowlist checks.
+    const { data: userData, error: authError } = await authClient.auth.getUser();
+    if (authError || !userData.user) {
       return jsonResponse({ error: "Sign in is required to classify fish images." }, 401);
     }
+    const user = userData.user;
 
     await ensureProfile(serviceClient, user.id);
+
+    const aiEnabled = await isAiFishDetectionEnabled(serviceClient, user.id);
+    if (!aiEnabled) {
+      return jsonResponse(
+        { error: "AI fish detection is not enabled for this account." },
+        403,
+      );
+    }
 
     const imageDataUrl = await readImageDataUrl(req);
     const speciesCatalog = await loadSpeciesCatalog(serviceClient);
@@ -64,17 +73,13 @@ Deno.serve(async (req) => {
       species.name.toLowerCase() === classification.matched_species_name?.toLowerCase()
     ) ?? null;
 
-    const catchRecord = matchedSpecies
-      ? await upsertCatch(serviceClient, user.id, matchedSpecies.id)
-      : null;
-
     return jsonResponse({
       classification,
       species: matchedSpecies,
-      catch: catchRecord,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = formatError(error);
+    console.error("classify-fish failed:", message, error);
     return jsonResponse({ error: message }, 500);
   }
 });
@@ -92,6 +97,23 @@ async function ensureProfile(
   }
 }
 
+async function isAiFishDetectionEnabled(
+  serviceClient: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await serviceClient
+    .from("profiles")
+    .select("ai_fish_detection_enabled")
+    .eq("id", userId)
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data?.ai_fish_detection_enabled === true;
+}
+
 async function loadSpeciesCatalog(
   serviceClient: ReturnType<typeof createClient>,
 ): Promise<FishSpecies[]> {
@@ -105,30 +127,6 @@ async function loadSpeciesCatalog(
   }
 
   return data ?? [];
-}
-
-async function upsertCatch(
-  serviceClient: ReturnType<typeof createClient>,
-  userId: string,
-  speciesId: number,
-): Promise<unknown> {
-  const { data, error } = await serviceClient
-    .from("user_catches")
-    .upsert(
-      {
-        user_id: userId,
-        species_id: speciesId,
-      },
-      { onConflict: "user_id,species_id" },
-    )
-    .select("*")
-    .single();
-
-  if (error) {
-    throw error;
-  }
-
-  return data;
 }
 
 async function readImageDataUrl(req: Request): Promise<string> {
@@ -254,6 +252,18 @@ async function classifyFishWithOpenAI(input: {
   }
 
   return JSON.parse(outputText) as FishClassification;
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String(error.message);
+  }
+
+  return "Unknown error";
 }
 
 function requiredEnv(name: string): string {
